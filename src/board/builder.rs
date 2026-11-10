@@ -303,8 +303,10 @@ mod native {
     use crate::{
         DeviceConfig,
         device::virtio::{
-            virtio_block::VirtIOBlkDeviceBuilder, virtio_device::VirtIODeviceEnum,
+            virtio_block::VirtIOBlkDeviceBuilder,
+            virtio_device::{VirtIODeviceEnum, VirtIODeviceTrait},
             virtio_mmio::VirtIOMMIO,
+            virtio_rng::VirtIORngDeviceBuilder,
         },
     };
 
@@ -316,9 +318,9 @@ mod native {
             irq: PeriphIrqId,
             config: DeviceConfig,
         ) -> Self {
-            let virtio_device = match config.dev_type {
-                VirtIODeviceEnum::VirtIOBlock => {
-                    let ram_base = unsafe { &mut self.ram_ref.as_mut_unchecked()[0] as *mut u8 };
+            let ram_base = unsafe { &mut self.ram_ref.as_mut_unchecked()[0] as *mut u8 };
+            let virtio_device: Box<UnsafeCell<dyn VirtIODeviceTrait>> = match config.dev_type {
+                VirtIODeviceEnum::VirtIOBlock => Box::new(UnsafeCell::new(
                     VirtIOBlkDeviceBuilder::new(
                         ram_base,
                         String::from(config.path.to_str().unwrap()),
@@ -327,13 +329,16 @@ mod native {
                         crate::device::virtio::virtio_block::VirtIOBlockFeature::BlockSize,
                     )
                     .host_feature(crate::device::virtio::virtio_block::VirtIOBlockFeature::Flush)
-                    .get_and_spawner_task(&mut self.spawner)
-                }
+                    .get_and_spawner_task(&mut self.spawner),
+                )),
+                VirtIODeviceEnum::VirtIORng => Box::new(UnsafeCell::new(
+                    VirtIORngDeviceBuilder::new(ram_base).get_and_spawner_task(&mut self.spawner),
+                )),
                 dev_type => {
                     panic!("unsupport device: {:#?}", dev_type);
                 }
             };
-            let virtio_mmio_device = VirtIOMMIO::new(Box::new(UnsafeCell::new(virtio_device)));
+            let virtio_mmio_device = VirtIOMMIO::new(virtio_device);
             self.add_plic_device(Box::new(virtio_mmio_device), base, size, irq)
         }
     }
@@ -447,5 +452,17 @@ mod native_tests {
         assert!(board.is_ok());
 
         let _ = std::fs::remove_file(file_path);
+    }
+
+    #[test]
+    fn test_rvboard_builder_virtio_rng() {
+        let config: DeviceConfig = "virtio-rng".parse().unwrap();
+        assert_eq!(config.dev_type, VirtIODeviceEnum::VirtIORng);
+
+        let ram = Ram::new();
+        let board = add_default_mmio_devices(RVBoardBuilder::new(ram))
+            .add_virtio_device(VIRTIO_MMIO_BASE, VIRTIO_MMIO_SIZE, VIRTIO_IRQ_BASE, config)
+            .build();
+        assert!(board.is_ok());
     }
 }

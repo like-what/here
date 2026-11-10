@@ -50,14 +50,29 @@ impl FromStr for DeviceConfig {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut parts = s.split(':');
-        let dev_type = match parts.next() {
-            Some("virtio-block") => VirtIODeviceEnum::VirtIOBlock,
-            Some("virtio-network") => VirtIODeviceEnum::VirtIONet,
-            Some(other) => return Err(format!("Unknown device type: {}", other)),
-            None => return Err("Invalid device arguments.".into()),
-        };
-        let path = PathBuf::from(parts.next().ok_or("Need input a device path.")?);
-        Ok(DeviceConfig { dev_type, path })
+        let mut parts = s.splitn(2, ':');
+        let kind = parts.next().ok_or("Invalid device arguments.")?;
+        let path = parts.next().unwrap_or("");
+        match kind {
+            "virtio-block" | "virtio-network" => {
+                if path.is_empty() {
+                    return Err("Need input a device path.".into());
+                }
+                let dev_type = if kind == "virtio-block" {
+                    VirtIODeviceEnum::VirtIOBlock
+                } else {
+                    VirtIODeviceEnum::VirtIONet
+                };
+                Ok(DeviceConfig {
+                    dev_type,
+                    path: PathBuf::from(path),
+                })
+            }
+            "virtio-rng" => Ok(DeviceConfig {
+                dev_type: VirtIODeviceEnum::VirtIORng,
+                path: PathBuf::new(),
+            }),
+            other => Err(format!("Unknown device type: {}", other)),
+        }
     }
 }
