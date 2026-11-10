@@ -796,6 +796,169 @@ fn test_custom_abs_decode_and_exec() {
 }
 
 #[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_padd8_backend_execution() {
+    let raw_padd8: u32 = 0x0020_818B;
+
+    run_test_exec_decode(
+        raw_padd8,
+        |builder| {
+            builder
+                .reg(1, 0x0102_0304)
+                .reg(2, 0x0506_0708)
+                .pc(0x8000_0000)
+        },
+        |checker| checker.reg(3, 0x0608_0A0C).pc(0x8000_0004),
+    );
+
+    // byte0: 0x02 + 0xFE wraps to 0x00 and must not carry into byte1.
+    run_test_exec_decode(
+        raw_padd8,
+        |builder| {
+            builder
+                .reg(1, 0xFF01_FE02)
+                .reg(2, 0x01FF_02FE)
+                .pc(0x8000_0000)
+        },
+        |checker| checker.reg(3, 0).pc(0x8000_0004),
+    );
+
+    run_test_exec_decode(
+        raw_padd8,
+        |builder| {
+            builder
+                .reg(1, 0xFFFF_FFFF_FFFF_FFFF)
+                .reg(2, 0x0101_0101_0101_0101)
+                .pc(0x8000_0000)
+        },
+        |checker| checker.reg(3, 0).pc(0x8000_0004),
+    );
+
+    let raw_padd8_to_x0: u32 = 0x0020_800B;
+    run_test_exec_decode(
+        raw_padd8_to_x0,
+        |builder| builder.reg(1, 0x1122_3344).reg(2, 0x5566_7788),
+        |checker| checker.reg(0, 0),
+    );
+}
+
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_padd8_pipeline_step() {
+    let program = [
+        0x0050_0093, // addi x1, x0, 5
+        0x00a0_0113, // addi x2, x0, 10
+        0x0020_818B, // padd8 x3, x1, x2
+        0x0031_820B, // padd8 x4, x3, x3
+    ];
+
+    run_test_cpu_step(
+        &program,
+        |builder| builder.pc(ram_config::BASE_ADDR),
+        |checker| {
+            checker
+                .reg(1, 5)
+                .reg(2, 10)
+                .reg(3, 15)
+                .reg(4, 30)
+                .pc(ram_config::BASE_ADDR + 16)
+        },
+    );
+}
+
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_psub8_backend_execution() {
+    let raw_psub8: u32 = 0x0020_918B;
+
+    run_test_exec_decode(
+        raw_psub8,
+        |builder| {
+            builder
+                .reg(1, 0x0102_0304)
+                .reg(2, 0x0001_0101)
+                .pc(0x8000_0000)
+        },
+        |checker| checker.reg(3, 0x0101_0203).pc(0x8000_0004),
+    );
+
+    // byte0 wraps from 0x00 - 0x01; the borrow must not reach byte1.
+    run_test_exec_decode(
+        raw_psub8,
+        |builder| {
+            builder
+                .reg(1, 0x0000_0100)
+                .reg(2, 0x0000_0001)
+                .pc(0x8000_0000)
+        },
+        |checker| checker.reg(3, 0x0000_01FF).pc(0x8000_0004),
+    );
+
+    run_test_exec_decode(
+        raw_psub8,
+        |builder| builder.reg(1, 0).reg(2, 0).pc(0x8000_0000),
+        |checker| checker.reg(3, 0).pc(0x8000_0004),
+    );
+
+    run_test_exec_decode(
+        raw_psub8,
+        |builder| {
+            builder
+                .reg(1, 0xFFFF_FFFF_FFFF_FFFF)
+                .reg(2, 0x0101_0101_0101_0101)
+                .pc(0x8000_0000)
+        },
+        |checker| checker.reg(3, 0xFEFE_FEFE_FEFE_FEFE).pc(0x8000_0004),
+    );
+
+    let raw_psub8_to_x0: u32 = 0x0020_900B;
+    run_test_exec_decode(
+        raw_psub8_to_x0,
+        |builder| builder.reg(1, 0x1122_3344).reg(2, 0x0000_0001),
+        |checker| checker.reg(0, 0),
+    );
+}
+
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_abs_backend_execution() {
+    let raw_abs: u32 = 0x0000_A18B;
+
+    run_test_exec_decode(
+        raw_abs,
+        |builder| builder.reg(1, 0).pc(0x8000_0000),
+        |checker| checker.reg(3, 0).pc(0x8000_0004),
+    );
+    run_test_exec_decode(
+        raw_abs,
+        |builder| builder.reg(1, 42).pc(0x8000_0000),
+        |checker| checker.reg(3, 42).pc(0x8000_0004),
+    );
+    run_test_exec_decode(
+        raw_abs,
+        |builder| builder.reg(1, (-42i64) as WordType).pc(0x8000_0000),
+        |checker| checker.reg(3, 42).pc(0x8000_0004),
+    );
+    run_test_exec_decode(
+        raw_abs,
+        |builder| builder.reg(1, (-1i64) as WordType).pc(0x8000_0000),
+        |checker| checker.reg(3, 1).pc(0x8000_0004),
+    );
+    run_test_exec_decode(
+        raw_abs,
+        |builder| builder.reg(1, i64::MIN as WordType).pc(0x8000_0000),
+        |checker| checker.reg(3, 1u64 << 63).pc(0x8000_0004),
+    );
+
+    let raw_abs_to_x0: u32 = 0x0000_A00B;
+    run_test_exec_decode(
+        raw_abs_to_x0,
+        |builder| builder.reg(1, (-42i64) as WordType),
+        |checker| checker.reg(0, 0),
+    );
+}
+
+#[cfg(feature = "custom-instr")]
 #[ignore = "custom-instr"]
 #[test]
 fn test_custom_instr() {

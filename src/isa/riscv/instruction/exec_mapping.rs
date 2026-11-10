@@ -19,54 +19,6 @@ use crate::{
     },
 };
 
-#[cfg(feature = "custom-instr")]
-fn packed_add8(a: WordType, b: WordType) -> WordType {
-    let mut result = 0;
-    for lane in 0..8 {
-        let shift = lane * 8;
-        let sum = ((a >> shift) as u8).wrapping_add((b >> shift) as u8) as WordType;
-        result |= sum << shift;
-    }
-    result
-}
-
-#[cfg(feature = "custom-instr")]
-fn packed_sub8(a: WordType, b: WordType) -> WordType {
-    let mut result = 0;
-    for lane in 0..8 {
-        let shift = lane * 8;
-        let diff = ((a >> shift) as u8).wrapping_sub((b >> shift) as u8) as WordType;
-        result |= diff << shift;
-    }
-    result
-}
-
-#[cfg(feature = "custom-instr")]
-fn exec_packed8(
-    info: RVInstrInfo,
-    cpu: &mut RVCPU,
-    name: &str,
-    op: fn(WordType, WordType) -> WordType,
-) -> Result<(), Exception> {
-    super::normal_exec(cpu, |cpu| {
-        let RVInstrInfo::R { rs1, rs2, rd } = info else {
-            return Err(Exception::IllegalInstruction);
-        };
-        let (lhs, rhs) = cpu.reg_file.read(rs1, rs2);
-        let result = op(lhs, rhs);
-        log::info!(
-            "[Custom-Instr] Executed {}: rd={}, rs1={}, rs2={}, result={:#x}",
-            name,
-            rd,
-            rs1,
-            rs2,
-            result
-        );
-        cpu.reg_file.write(rd, result);
-        Ok(())
-    })
-}
-
 pub(in crate::isa::riscv) fn get_exec_func(
     instr: RiscvInstr,
 ) -> fn(RVInstrInfo, &mut RVCPU) -> Result<(), Exception> {
@@ -364,28 +316,11 @@ pub(in crate::isa::riscv) fn get_exec_func(
         // RV_Custom
         //---------------------------------------
         #[cfg(feature = "custom-instr")]
-        RiscvInstr::PADD8 => |info, cpu| exec_packed8(info, cpu, "PADD8", packed_add8),
+        RiscvInstr::PADD8 => exec_arith::<ExecPadd8>,
         #[cfg(feature = "custom-instr")]
-        RiscvInstr::PSUB8 => |info, cpu| exec_packed8(info, cpu, "PSUB8", packed_sub8),
+        RiscvInstr::PSUB8 => exec_arith::<ExecPsub8>,
         #[cfg(feature = "custom-instr")]
-        RiscvInstr::ABS => |info, cpu| {
-            super::normal_exec(cpu, |cpu| {
-                let RVInstrInfo::R { rs1, rs2, rd } = info else {
-                    return Err(Exception::IllegalInstruction);
-                };
-                let value = cpu.reg_file.read(rs1, 0).0;
-                let result = (value as i64).unsigned_abs();
-                log::info!(
-                    "[Custom-Instr] Executed ABS: rd={}, rs1={}, rs2={}, result={:#x}",
-                    rd,
-                    rs1,
-                    rs2,
-                    result
-                );
-                cpu.reg_file.write(rd, result);
-                Ok(())
-            })
-        },
+        RiscvInstr::ABS => exec_unary::<ExecAbs>,
         #[cfg(feature = "custom-instr")]
         RiscvInstr::MY_INSTR1_DISPLAY => |info, cpu| {
             super::normal_exec(cpu, |_cpu| {

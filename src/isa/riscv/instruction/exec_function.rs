@@ -7,7 +7,7 @@ pub(super) use super::exec_float_function::*;
 use super::normal_exec;
 
 use crate::{
-    config::arch_config::WordType,
+    config::arch_config::{SignedWordType, WordType},
     isa::riscv::{
         csr_reg::{NamedCsrReg, csr_macro::Minstret},
         executor::RVCPU,
@@ -66,6 +66,27 @@ where
         };
 
         cpu.reg_file.write(rd, rst);
+        Ok(())
+    })
+}
+
+/// Unary custom instructions read `rs1` and ignore the other source operand.
+#[cfg(feature = "custom-instr")]
+#[inline]
+pub(super) fn exec_unary<F>(info: RVInstrInfo, cpu: &mut RVCPU) -> Result<(), Exception>
+where
+    F: ExecUnaryTrait<Result<WordType, Exception>>,
+{
+    super::normal_exec(cpu, |cpu| {
+        let (rd, result) = match info {
+            RVInstrInfo::R { rs1, rd, .. } | RVInstrInfo::I { rs1, rd, .. } => {
+                let value = cpu.reg_file.read(rs1, 0).0;
+                (rd, F::exec(value)?)
+            }
+            _ => unsafe { unreachable_unchecked() },
+        };
+
+        cpu.reg_file.write(rd, result);
         Ok(())
     })
 }
@@ -931,5 +952,51 @@ where
 {
     fn exec(a: T, b: T) -> bool {
         a >= b
+    }
+}
+
+#[cfg(feature = "custom-instr")]
+pub(in super::super) struct ExecPadd8;
+
+#[cfg(feature = "custom-instr")]
+impl ExecTrait<Result<WordType, Exception>> for ExecPadd8 {
+    fn exec(a: WordType, b: WordType) -> Result<WordType, Exception> {
+        let a_bytes = a.to_le_bytes();
+        let b_bytes = b.to_le_bytes();
+        let mut result = [0u8; std::mem::size_of::<WordType>()];
+
+        for i in 0..std::mem::size_of::<WordType>() {
+            result[i] = a_bytes[i].wrapping_add(b_bytes[i]);
+        }
+
+        Ok(WordType::from_le_bytes(result))
+    }
+}
+
+#[cfg(feature = "custom-instr")]
+pub(in super::super) struct ExecPsub8;
+
+#[cfg(feature = "custom-instr")]
+impl ExecTrait<Result<WordType, Exception>> for ExecPsub8 {
+    fn exec(a: WordType, b: WordType) -> Result<WordType, Exception> {
+        let a_bytes = a.to_le_bytes();
+        let b_bytes = b.to_le_bytes();
+        let mut result = [0u8; std::mem::size_of::<WordType>()];
+
+        for i in 0..std::mem::size_of::<WordType>() {
+            result[i] = a_bytes[i].wrapping_sub(b_bytes[i]);
+        }
+
+        Ok(WordType::from_le_bytes(result))
+    }
+}
+
+#[cfg(feature = "custom-instr")]
+pub(in super::super) struct ExecAbs;
+
+#[cfg(feature = "custom-instr")]
+impl ExecUnaryTrait<Result<WordType, Exception>> for ExecAbs {
+    fn exec(a: WordType) -> Result<WordType, Exception> {
+        Ok((a as SignedWordType).unsigned_abs())
     }
 }
