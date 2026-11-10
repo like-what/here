@@ -746,6 +746,56 @@ fn test_rv_c_float() {
 }
 
 #[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_padd8_decode_and_exec() {
+    // padd8 x3, x1, x2
+    // funct7=0, rs2=2, rs1=1, funct3=0, rd=3, opcode=0x0B
+    let raw_instr: u32 = 0x0020_818B;
+
+    run_test_exec_decode(
+        raw_instr,
+        |builder| {
+            builder
+                .reg(1, 0x0102_0304)
+                .reg(2, 0x0506_0708)
+                .pc(0x8000_0000)
+        },
+        |checker| checker.reg(3, 0x0608_0A0C).pc(0x8000_0004),
+    );
+}
+
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_psub8_decode_and_exec() {
+    // psub8 x3, x1, x2
+    let raw_instr: u32 = 0x0020_918B;
+
+    run_test_exec_decode(
+        raw_instr,
+        |builder| {
+            builder
+                .reg(1, 0x0102_0304)
+                .reg(2, 0x0001_0101)
+                .pc(0x8000_0000)
+        },
+        |checker| checker.reg(3, 0x0101_0203).pc(0x8000_0004),
+    );
+}
+
+#[cfg(feature = "custom-instr")]
+#[test]
+fn test_custom_abs_decode_and_exec() {
+    // abs x3, x1
+    let raw_instr: u32 = 0x0000_A18B;
+
+    run_test_exec_decode(
+        raw_instr,
+        |builder| builder.reg(1, (-42i64) as WordType).pc(0x8000_0000),
+        |checker| checker.reg(3, 42).pc(0x8000_0004),
+    );
+}
+
+#[cfg(feature = "custom-instr")]
 #[ignore = "custom-instr"]
 #[test]
 fn test_custom_instr() {
